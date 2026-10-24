@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AgentCore Runtime (MCP protocol) running the Nano Banana container, plus its execution role
+
+Parameters:
+  AppName:
+    Type: String
+  Environment:
+    Type: String
+  ContainerUri:
+    Type: String
+  RepositoryArn:
+    Type: String
+  GeminiSecretArn:
+    Type: String
+  ImageBucketName:
+    Type: String
+  ImageBucketArn:
+    Type: String
+  DiscoveryUrl:
+    Type: String
+  AllowedClientId:
+    Type: String
+
+Resources:
+  RuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-${Environment}-runtime-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*"
+      Policies:
+        - PolicyName: !Sub "${AppName}-${Environment}-runtime-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EcrAuthToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*" # this action does not support resource-level permissions
+              - Sid: EcrPull
+                Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Ref RepositoryArn
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*"
+              - Sid: ReadGeminiKey
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref GeminiSecretArn
+              - Sid: WriteImages
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "${ImageBucketArn}/images/*"
+
+  McpRuntime:
+    Type: AWS::BedrockAgentCore::Runtime
+    Properties:
+      AgentRuntimeName: !Sub "${AppName}_${Environment}_mcp"
+      Description: Nano Banana (Gemini image) MCP server
+      RoleArn: !GetAtt RuntimeRole.Arn
+      AgentRuntimeArtifact:
+        ContainerConfiguration:
+          ContainerUri: !Ref ContainerUri
+      NetworkConfiguration:
+        NetworkMode: PUBLIC
+      ProtocolConfiguration: MCP
+      AuthorizerConfiguration:
+        CustomJWTAuthorizer:
+          DiscoveryUrl: !Ref DiscoveryUrl
+          AllowedClients:
+            - !Ref AllowedClientId
+      EnvironmentVariables:
+        GEMINI_SECRET_ARN: !Ref GeminiSecretArn
+        IMAGE_BUCKET: !Ref ImageBucketName
+
+Outputs:
+  RuntimeArn:
+    Value: !GetAtt McpRuntime.AgentRuntimeArn
+  RuntimeId:
+    Value: !GetAtt McpRuntime.AgentRuntimeId

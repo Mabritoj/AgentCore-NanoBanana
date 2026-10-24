@@ -6,3 +6,6 @@ scripts
 __pycache__
 *.md
 .env
+template.yaml
+samconfig.toml
+.aws-sam

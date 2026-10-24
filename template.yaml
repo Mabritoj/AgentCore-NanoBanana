@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Nano Banana MCP server on Bedrock AgentCore Runtime (root stack; resources live in infrastructure/ nested stacks)
+
+# No Globals block: this project has no AWS::Serverless::Function resources. The compute is an
+# AgentCore Runtime container (see infrastructure/runtime.yaml), which SAM has no native resource for.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: nanobanana
+    AllowedPattern: "^[a-z][a-z0-9]{0,19}$"
+    Description: Lowercase alphanumeric prefix used in resource names (the runtime name only allows letters, digits, underscores)
+  Environment:
+    Type: String
+    AllowedValues: [dev, prd]
+  ImageTag:
+    Type: String
+    Default: ""
+    Description: Container image tag in ECR. Leave empty on the first deploy; the runtime is only created once a tag is supplied (see scripts/deploy.sh)
+
+Conditions:
+  HasImage: !Not [!Equals [!Ref ImageTag, ""]]
+
+Resources:
+  EcrStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: infrastructure/ecr.yaml
+      Parameters:
+        AppName: !Ref AppName
+        Environment: !Ref Environment
+
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: infrastructure/storage.yaml
+      Parameters:
+        AppName: !Ref AppName
+        Environment: !Ref Environment
+
+  AuthStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: infrastructure/auth.yaml
+      Parameters:
+        AppName: !Ref AppName
+        Environment: !Ref Environment
+
+  RuntimeStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasImage
+    Properties:
+      TemplateURL: infrastructure/runtime.yaml
+      Parameters:
+        AppName: !Ref AppName
+        Environment: !Ref Environment
+        ContainerUri: !Sub "${EcrStack.Outputs.RepositoryUri}:${ImageTag}"
+        RepositoryArn: !GetAtt EcrStack.Outputs.RepositoryArn
+        GeminiSecretArn: !GetAtt StorageStack.Outputs.GeminiSecretArn
+        ImageBucketName: !GetAtt StorageStack.Outputs.ImageBucketName
+        ImageBucketArn: !GetAtt StorageStack.Outputs.ImageBucketArn
+        DiscoveryUrl: !GetAtt AuthStack.Outputs.DiscoveryUrl
+        AllowedClientId: !GetAtt AuthStack.Outputs.GatewayClientId
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt EcrStack.Outputs.RepositoryUri
+  GeminiSecretArn:
+    Value: !GetAtt StorageStack.Outputs.GeminiSecretArn
+  UserPoolId:
+    Value: !GetAtt AuthStack.Outputs.UserPoolId
+  GatewayClientId:
+    Value: !GetAtt AuthStack.Outputs.GatewayClientId
+  TokenUrl:
+    Value: !GetAtt AuthStack.Outputs.TokenUrl
+  GatewayScope:
+    Value: !GetAtt AuthStack.Outputs.GatewayScope
+  RuntimeArn:
+    Condition: HasImage
+    Value: !GetAtt RuntimeStack.Outputs.RuntimeArn

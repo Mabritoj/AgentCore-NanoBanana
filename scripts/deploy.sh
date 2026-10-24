@@ -1,83 +1,65 @@
 #!/usr/bin/env bash
-# Build the arm64 image, push to ECR, and create/update the AgentCore Runtime (MCP protocol).
-# Prereqs: aws CLI v2 (recent enough for `bedrock-agentcore-control`), docker with buildx.
-# Usage:   GEMINI_API_KEY=... AWS_REGION=us-east-1 ./scripts/deploy.sh
+# Deploy the Nano Banana MCP runtime for one environment.
+#   1. sam deploy  -> ECR, secret, bucket, Cognito (runtime is skipped while ImageTag is empty)
+#   2. store the Gemini key, build + push the linux/arm64 image
+#   3. sam deploy  -> same stack with ImageTag set, which creates/updates the AgentCore Runtime
+#
+# Usage: GEMINI_API_KEY=... ./scripts/deploy.sh [dev|prd]
+# Prereqs: AWS credentials + region, sam CLI, docker with buildx.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
-PREFIX="${PREFIX:-nanobanana}"
-STACK="${PREFIX}-foundation"
-RUNTIME_NAME="${PREFIX}_mcp"
+ENV="${1:-dev}"
 TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || date +%s)}"
+
+cfg() { python3 - "$ENV" "$1" <<'PY'
+import sys, tomllib
+env, key = sys.argv[1:]
+print(tomllib.load(open("samconfig.toml", "rb"))[env]["deploy"]["parameters"][key])
+PY
+}
+STACK="$(cfg stack_name)"
+OVERRIDES="$(cfg parameter_overrides)"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region)}}"
 export AWS_DEFAULT_REGION="$REGION"
 
 out() { aws cloudformation describe-stacks --stack-name "$STACK" \
   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+deploy() { sam deploy --config-env "$ENV" --no-confirm-changeset --no-fail-on-empty-changeset "$@"; }
 
-echo "==> Deploying foundation stack"
-aws cloudformation deploy --stack-name "$STACK" --template-file infra/foundation.yaml \
-  --capabilities CAPABILITY_IAM --parameter-overrides Prefix="$PREFIX"
-
-REPO_URI=$(out RepositoryUri); ROLE_ARN=$(out RuntimeRoleArn); SECRET_ARN=$(out SecretArn)
-BUCKET=$(out ImageBucket); DISCOVERY=$(out DiscoveryUrl); CLIENT_ID=$(out GatewayClientId)
+echo "==> sam build + deploy (infrastructure)"
+sam build
+deploy
 
 if [[ -n "${GEMINI_API_KEY:-}" ]]; then
   echo "==> Storing Gemini API key in Secrets Manager"
-  aws secretsmanager put-secret-value --secret-id "$SECRET_ARN" --secret-string "$GEMINI_API_KEY" >/dev/null
+  aws secretsmanager put-secret-value --secret-id "$(out GeminiSecretArn)" --secret-string "$GEMINI_API_KEY" >/dev/null
 else
-  echo "!! GEMINI_API_KEY not set; leaving secret as-is. Set it later with:"
-  echo "   aws secretsmanager put-secret-value --secret-id $SECRET_ARN --secret-string <key>"
+  echo "!! GEMINI_API_KEY not set; secret left as-is. Set it with:"
+  echo "   aws secretsmanager put-secret-value --secret-id $(out GeminiSecretArn) --secret-string <key>"
 fi
 
+REPO_URI="$(out RepositoryUri)"
 echo "==> Building and pushing $REPO_URI:$TAG (linux/arm64)"
 aws ecr get-login-password | docker login --username AWS --password-stdin "${REPO_URI%%/*}"
 docker buildx build --platform linux/arm64 -t "$REPO_URI:$TAG" --push .
 
-ENV_VARS="GEMINI_SECRET_ARN=$SECRET_ARN,IMAGE_BUCKET=$BUCKET"
-AUTH="customJWTAuthorizer={discoveryUrl=$DISCOVERY,allowedClients=[$CLIENT_ID]}"
-ARTIFACT="containerConfiguration={containerUri=$REPO_URI:$TAG}"
+echo "==> sam deploy (runtime, ImageTag=$TAG)"
+# Passing --parameter-overrides replaces the samconfig.toml value, so the config's overrides are re-supplied here.
+deploy --parameter-overrides "$OVERRIDES ImageTag=\"$TAG\""
 
-EXISTING=$(aws bedrock-agentcore-control list-agent-runtimes \
-  --query "agentRuntimes[?agentRuntimeName=='$RUNTIME_NAME'].agentRuntimeId | [0]" --output text)
-
-if [[ "$EXISTING" == "None" || -z "$EXISTING" ]]; then
-  echo "==> Creating runtime $RUNTIME_NAME"
-  RUNTIME_ID=$(aws bedrock-agentcore-control create-agent-runtime \
-    --agent-runtime-name "$RUNTIME_NAME" --agent-runtime-artifact "$ARTIFACT" --role-arn "$ROLE_ARN" \
-    --network-configuration networkMode=PUBLIC --protocol-configuration serverProtocol=MCP \
-    --authorizer-configuration "$AUTH" --environment-variables "$ENV_VARS" \
-    --query agentRuntimeId --output text)
-else
-  echo "==> Updating runtime $EXISTING"
-  RUNTIME_ID="$EXISTING"
-  aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id "$RUNTIME_ID" \
-    --agent-runtime-artifact "$ARTIFACT" --role-arn "$ROLE_ARN" \
-    --network-configuration networkMode=PUBLIC --protocol-configuration serverProtocol=MCP \
-    --authorizer-configuration "$AUTH" --environment-variables "$ENV_VARS" >/dev/null
-fi
-
-echo "==> Waiting for READY"
-for _ in $(seq 60); do
-  STATUS=$(aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RUNTIME_ID" --query status --output text)
-  [[ "$STATUS" == "READY" ]] && break
-  [[ "$STATUS" == *FAILED* ]] && { echo "Runtime status: $STATUS"; exit 1; }
-  sleep 10
-done
-[[ "$STATUS" == "READY" ]] || { echo "Timed out; status=$STATUS"; exit 1; }
-
-RUNTIME_ARN=$(aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RUNTIME_ID" --query agentRuntimeArn --output text)
-ENCODED_ARN=$(python3 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe=""))' "$RUNTIME_ARN")
+RUNTIME_ARN="$(out RuntimeArn)"
+ENCODED_ARN="$(python3 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe=""))' "$RUNTIME_ARN")"
+CLIENT_ID="$(out GatewayClientId)"; POOL_ID="$(out UserPoolId)"
 
 cat <<MSG
 
-Runtime READY: $RUNTIME_ARN
+Runtime: $RUNTIME_ARN
 
-Gateway target settings (Target type: MCP server):
-  Endpoint:        https://bedrock-agentcore.$REGION.amazonaws.com/runtimes/$ENCODED_ARN/invocations?qualifier=DEFAULT
-  Outbound auth:   OAuth client credentials
-  Client ID:       $CLIENT_ID
-  Client secret:   (Cognito console > $(out UserPoolId) > App clients > agentcore-gateway)
-  Token URL:       $(out TokenUrl)
-  Scope:           nanobanana/invoke
+Gateway target settings (Target type: MCP server, outbound auth: OAuth client credentials):
+  Endpoint:       https://bedrock-agentcore.$REGION.amazonaws.com/runtimes/$ENCODED_ARN/invocations?qualifier=DEFAULT
+  Client ID:      $CLIENT_ID
+  Client secret:  aws cognito-idp describe-user-pool-client --user-pool-id $POOL_ID --client-id $CLIENT_ID --query UserPoolClient.ClientSecret --output text
+  Token URL:      $(out TokenUrl)
+  Scope:          $(out GatewayScope)
 MSG

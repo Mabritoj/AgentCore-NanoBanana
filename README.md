@@ -21,22 +21,48 @@ bucket is configured (as deployed), otherwise `inline`.
 Model aliases map to `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`,
 `gemini-2.5-flash-image` (see `app/gemini.py`). Verify these IDs against your AI Studio account; edit `MODELS` if they differ.
 
-## Deploy
+## Layout (follows the AWS SAM conventions)
 
-Prereqs: AWS CLI v2 with `bedrock-agentcore-control`, Docker with buildx, a Google AI Studio API key.
-
-```bash
-GEMINI_API_KEY=... AWS_REGION=us-east-1 ./scripts/deploy.sh
+```
+template.yaml            # root stack: SAM transform + AWS::CloudFormation::Stack declarations only
+samconfig.toml           # [dev] / [prd] sections: stack name, parameter_overrides, BACKUP tag
+infrastructure/
+  ecr.yaml               # EcrStack      - image repository
+  storage.yaml           # StorageStack  - Gemini API key secret + image bucket
+  auth.yaml              # AuthStack     - Cognito client-credentials auth for the gateway
+  runtime.yaml           # RuntimeStack  - runtime execution role + AWS::BedrockAgentCore::Runtime
+app/  Dockerfile         # the MCP server container (Python)
+scripts/deploy.sh        # sam build/deploy, image build + push, runtime rollout
 ```
 
-This deploys `infra/foundation.yaml` (ECR repo, Secrets Manager secret, S3 bucket with 7-day expiry, runtime
-execution role, Cognito client-credentials auth), builds and pushes the **linux/arm64** image, and creates or
-updates the runtime with `serverProtocol=MCP` and a JWT authorizer. It prints the values needed for the gateway target.
+Values reach nested stacks only through the root (`Parameters:` on each `AWS::CloudFormation::Stack`; sibling
+outputs are read with `!GetAtt` in the root and forwarded). All resources have explicit names, stateful ones
+(secret, bucket, user pool) are `Retain`, and the only tag is `BACKUP=<stack name>` from `samconfig.toml`.
+There is no `Globals` block because the project has no `AWS::Serverless::Function`; compute is the AgentCore
+Runtime container.
+
+## Deploy
+
+Prereqs: AWS credentials and region, SAM CLI, Docker with buildx, a Google AI Studio API key.
+
+```bash
+GEMINI_API_KEY=... ./scripts/deploy.sh dev     # or prd
+```
+
+The script runs `sam build` + `sam deploy --config-env <env>` twice: first without `ImageTag` (creates ECR,
+secret, bucket, Cognito; the `RuntimeStack` is skipped by the `HasImage` condition), then, after building and
+pushing the **linux/arm64** image, with `ImageTag` set so the runtime (`serverProtocol=MCP`, JWT authorizer) is
+created or updated. It prints the gateway target settings at the end.
 
 ## Add to the Gateway
 
 Create a target of type **MCP server** with the endpoint, Cognito client ID/secret, token URL and scope printed by
 the script (outbound auth: OAuth client credentials). Clients then see the tools as `<target-name>___generate_image`, etc.
+
+## Teardown
+
+`sam delete --config-env <env>` removes everything except the `Retain` resources (secret, image bucket, user
+pool). Delete those manually, or redeploys with the same names will conflict.
 
 ## Local development
 

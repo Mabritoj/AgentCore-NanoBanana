@@ -1,0 +1,28 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Container registry for the Nano Banana MCP runtime image
+
+Parameters:
+  AppName:
+    Type: String
+  Environment:
+    Type: String
+
+Resources:
+  ImageRepository:
+    Type: AWS::ECR::Repository
+    # Images are rebuildable from source, so the repository may be deleted with the stack.
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      RepositoryName: !Sub "${AppName}-${Environment}-mcp"
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 10","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}'
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt ImageRepository.RepositoryUri
+  RepositoryArn:
+    Value: !GetAtt ImageRepository.Arn

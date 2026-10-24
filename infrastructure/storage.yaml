@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Gemini API key secret and the bucket that holds generated images
+
+Parameters:
+  AppName:
+    Type: String
+  Environment:
+    Type: String
+  ImageRetentionDays:
+    Type: Number
+    Default: 7
+
+Resources:
+  GeminiSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub "${AppName}/${Environment}/gemini-api-key"
+      Description: Google AI Studio API key. Placeholder until set by scripts/deploy.sh
+      SecretString: REPLACE_ME
+
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${AppName}-${Environment}-images-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-images
+            Status: Enabled
+            Prefix: images/
+            ExpirationInDays: !Ref ImageRetentionDays
+
+Outputs:
+  GeminiSecretArn:
+    Value: !Ref GeminiSecret
+  ImageBucketName:
+    Value: !Ref ImageBucket
+  ImageBucketArn:
+    Value: !GetAtt ImageBucket.Arn
