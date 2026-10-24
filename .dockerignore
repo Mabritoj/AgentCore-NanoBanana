@@ -1,0 +1,8 @@
+.git
+.venv
+tests
+infra
+scripts
+__pycache__
+*.md
+.env
