@@ -19,7 +19,7 @@ Claude / Cursor ──MCP──▶ AgentCore Gateway ──MCP (OAuth)──▶ 
 bucket is configured (as deployed), otherwise `inline`.
 
 Model aliases map to `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`,
-`gemini-2.5-flash-image` (see `app/gemini.py`). Verify these IDs against your AI Studio account; edit `MODELS` if they differ.
+`gemini-2.5-flash-image` (see `containers/nanobanana/app/gemini.py`). Verify these IDs against your AI Studio account; edit `MODELS` if they differ.
 
 ## Layout (follows the AWS SAM conventions)
 
@@ -31,7 +31,7 @@ infrastructure/
   storage.yaml           # StorageStack  - Gemini API key secret + image bucket
   auth.yaml              # AuthStack     - Cognito client-credentials auth for the gateway
   runtime.yaml           # RuntimeStack  - runtime execution role + AWS::BedrockAgentCore::Runtime
-app/  Dockerfile         # the MCP server container (Python)
+containers/nanobanana/   # the MCP server container: Dockerfile, app/, tests/, requirements*.txt (Python)
 scripts/deploy.sh        # sam build/deploy, image build + push, runtime rollout
 ```
 
@@ -67,8 +67,9 @@ pool). Delete those manually, or redeploys with the same names will conflict.
 ## Local development
 
 ```bash
+cd containers/nanobanana
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest                       # mocked Gemini, real MCP client over HTTP
+.venv/bin/python -m pytest                        # mocked Gemini, real MCP client over HTTP
 GEMINI_API_KEY=... .venv/bin/python -m app.server # serves http://localhost:8000/mcp
 ```
 

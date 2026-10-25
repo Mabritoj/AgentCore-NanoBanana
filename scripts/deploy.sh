@@ -42,7 +42,7 @@ fi
 REPO_URI="$(out RepositoryUri)"
 echo "==> Building and pushing $REPO_URI:$TAG (linux/arm64)"
 aws ecr get-login-password | docker login --username AWS --password-stdin "${REPO_URI%%/*}"
-docker buildx build --platform linux/arm64 -t "$REPO_URI:$TAG" --push .
+docker buildx build --platform linux/arm64 -t "$REPO_URI:$TAG" --push containers/nanobanana
 
 echo "==> sam deploy (runtime, ImageTag=$TAG)"
 # Passing --parameter-overrides replaces the samconfig.toml value, so the config's overrides are re-supplied here.
