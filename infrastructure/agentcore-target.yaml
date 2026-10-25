@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Registers the Nano Banana MCP runtime as an MCP server target on a shared AgentCore Gateway
+
+Parameters:
+  AppName:
+    Type: String
+  GatewayExportPrefix:
+    Type: String
+    Description: Export prefix of the target AgentCore Gateway stack, for example ironbear-agentcore-prd
+  RuntimeArn:
+    Type: String
+  RuntimeId:
+    Type: String
+
+Resources:
+  # The gateway signs its calls to the runtime with its own role (SigV4), so the runtime must allow that role.
+  RuntimeInvokePolicy:
+    Type: AWS::BedrockAgentCore::ResourcePolicy
+    Properties:
+      ResourceArn: !Ref RuntimeArn
+      Policy: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "AllowGatewayInvoke",
+                "Effect": "Allow",
+                "Principal": { "AWS": "${GatewayRoleArn}" },
+                "Action": "bedrock-agentcore:InvokeAgentRuntime",
+                "Resource": [
+                  "${RuntimeArn}",
+                  "${RuntimeArn}/runtime-endpoint/*"
+                ]
+              }
+            ]
+          }
+        - GatewayRoleArn:
+            Fn::ImportValue: !Sub "${GatewayExportPrefix}-GatewayRoleArn"
+
+  GatewayTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    DependsOn: RuntimeInvokePolicy
+    Properties:
+      # Agents see tools as <Name>___<tool>, e.g. nanobanana___generate_image
+      Name: !Ref AppName
+      Description: Generate and edit images with Google Nano Banana (Gemini image models)
+      GatewayIdentifier:
+        Fn::ImportValue: !Sub "${GatewayExportPrefix}-GatewayId"
+      TargetConfiguration:
+        Mcp:
+          McpServer:
+            # The runtime ARN is URL-encoded in the path (":" -> %3A, "/" -> %2F)
+            Endpoint: !Sub "https://bedrock-agentcore.${AWS::Region}.amazonaws.com/runtimes/arn%3A${AWS::Partition}%3Abedrock-agentcore%3A${AWS::Region}%3A${AWS::AccountId}%3Aruntime%2F${RuntimeId}/invocations?qualifier=DEFAULT"
+            ListingMode: DEFAULT
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+          CredentialProvider:
+            IamCredentialProvider:
+              Service: bedrock-agentcore
+              Region: !Ref AWS::Region
+
+Outputs:
+  GatewayTargetName:
+    Value: !Ref AppName

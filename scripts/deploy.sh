@@ -49,13 +49,13 @@ echo "==> sam deploy (runtime, ImageTag=$TAG)"
 deploy --parameter-overrides "$OVERRIDES ImageTag=\"$TAG\""
 
 RUNTIME_ARN="$(out RuntimeArn)"
-ENCODED_ARN="$(python3 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe=""))' "$RUNTIME_ARN")"
 
 cat <<MSG
 
 Runtime: $RUNTIME_ARN
-
-Runtime inbound auth is IAM (SigV4); no authorizer is configured. Register it on your gateway as an
-MCP server target (GATEWAY_IAM_ROLE, IAM service 'bedrock-agentcore'). Endpoint:
-  https://bedrock-agentcore.$REGION.amazonaws.com/runtimes/$ENCODED_ARN/invocations?qualifier=DEFAULT
 MSG
+if [[ -n "$(out GatewayTargetName 2>/dev/null | grep -v '^None$')" ]]; then
+  echo "Registered on the gateway as target '$(out GatewayTargetName)'; tools appear as $(out GatewayTargetName)___generate_image, ___edit_image."
+else
+  echo "No GatewayExportPrefix for '$ENV' in samconfig.toml, so the gateway target was not created."
+fi

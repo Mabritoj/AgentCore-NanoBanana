@@ -30,6 +30,7 @@ infrastructure/
   ecr.yaml               # EcrStack      - image repository
   storage.yaml           # StorageStack  - Gemini API key secret + image bucket
   runtime.yaml           # RuntimeStack  - runtime execution role + AWS::BedrockAgentCore::Runtime
+  agentcore-target.yaml  # AgentCoreTargetStack - gateway target + runtime invoke permission (prd only)
 containers/nanobanana/   # the MCP server container: Dockerfile, app/, tests/, requirements*.txt (Python)
 scripts/deploy.sh        # sam build/deploy, image build + push, runtime rollout
 ```
@@ -55,15 +56,18 @@ created or updated. It prints the gateway target settings at the end.
 
 ## Add to the Gateway
 
-The runtime uses the default IAM (SigV4) inbound auth, so there is no OAuth setup. Because it speaks MCP, register
-it on the gateway as an **MCP server** target (`TargetConfiguration.Mcp.McpServer`) with:
+`infrastructure/agentcore-target.yaml` registers the runtime on a shared AgentCore Gateway (see the
+`agentcore-consumer` skill for the contract). It is created only when `GatewayExportPrefix` is set for the
+environment: `prd` points at `ironbear-agentcore-prd`; `dev` leaves it empty so a dev deploy cannot land on the prod gateway.
 
-- `Endpoint`: `https://bedrock-agentcore.<region>.amazonaws.com/runtimes/<URL-encoded runtime ARN>/invocations?qualifier=DEFAULT`
-  (the runtime ARN is a stack output; `deploy.sh` prints the full URL)
-- credentials: `GATEWAY_IAM_ROLE` with an IAM credential provider whose `Service` is `bedrock-agentcore`
+- **Target:** an MCP server target with `GATEWAY_IAM_ROLE` credentials (IAM service `bedrock-agentcore`), so the
+  gateway signs requests to the runtime with SigV4. There is no OAuth.
+- **Permission:** an `AWS::BedrockAgentCore::ResourcePolicy` on the runtime allows the gateway role (imported from
+  `<prefix>-GatewayRoleArn`) to call `bedrock-agentcore:InvokeAgentRuntime`. The gateway repo is not modified.
+- **Tool names:** `nanobanana___generate_image` and `nanobanana___edit_image` (target name + three underscores).
+- **Order:** the gateway stack must already be deployed in the same account and region.
 
-The gateway's role must also be allowed to invoke the runtime. This repo does not yet create the target; see the
-`agentcore-consumer` skill for the `GatewayTarget` / `GatewayExportPrefix` pattern.
+MCP clients (Claude, Cursor) connect to the gateway's own `/mcp` URL using the gateway's inbound auth.
 
 ## Teardown
 

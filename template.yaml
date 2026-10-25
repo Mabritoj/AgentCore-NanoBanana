@@ -19,8 +19,15 @@ Parameters:
     Default: ""
     Description: Container image tag in ECR. Leave empty on the first deploy; the runtime is only created once a tag is supplied (see scripts/deploy.sh)
 
+  GatewayExportPrefix:
+    Type: String
+    Default: ""
+    Description: Export prefix of the AgentCore Gateway stack to register with, for example ironbear-agentcore-prd. Leave empty to skip registration (the dev environment, since only a prd gateway exists)
+
 Conditions:
   HasImage: !Not [!Equals [!Ref ImageTag, ""]]
+  HasGateway: !Not [!Equals [!Ref GatewayExportPrefix, ""]]
+  RegisterTarget: !And [!Condition HasImage, !Condition HasGateway]
 
 Resources:
   EcrStack:
@@ -53,6 +60,17 @@ Resources:
         ImageBucketName: !GetAtt StorageStack.Outputs.ImageBucketName
         ImageBucketArn: !GetAtt StorageStack.Outputs.ImageBucketArn
 
+  AgentCoreTargetStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: RegisterTarget
+    Properties:
+      TemplateURL: infrastructure/agentcore-target.yaml
+      Parameters:
+        AppName: !Ref AppName
+        GatewayExportPrefix: !Ref GatewayExportPrefix
+        RuntimeArn: !GetAtt RuntimeStack.Outputs.RuntimeArn
+        RuntimeId: !GetAtt RuntimeStack.Outputs.RuntimeId
+
 Outputs:
   RepositoryUri:
     Value: !GetAtt EcrStack.Outputs.RepositoryUri
@@ -61,3 +79,6 @@ Outputs:
   RuntimeArn:
     Condition: HasImage
     Value: !GetAtt RuntimeStack.Outputs.RuntimeArn
+  GatewayTargetName:
+    Condition: RegisterTarget
+    Value: !GetAtt AgentCoreTargetStack.Outputs.GatewayTargetName
