@@ -16,10 +16,6 @@ Parameters:
     Type: String
   ImageBucketArn:
     Type: String
-  DiscoveryUrl:
-    Type: String
-  AllowedClientId:
-    Type: String
 
 Resources:
   RuntimeRole:
@@ -84,11 +80,6 @@ Resources:
       NetworkConfiguration:
         NetworkMode: PUBLIC
       ProtocolConfiguration: MCP
-      AuthorizerConfiguration:
-        CustomJWTAuthorizer:
-          DiscoveryUrl: !Ref DiscoveryUrl
-          AllowedClients:
-            - !Ref AllowedClientId
       EnvironmentVariables:
         GEMINI_SECRET_ARN: !Ref GeminiSecretArn
         IMAGE_BUCKET: !Ref ImageBucketName

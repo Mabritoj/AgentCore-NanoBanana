@@ -39,14 +39,6 @@ Resources:
         AppName: !Ref AppName
         Environment: !Ref Environment
 
-  AuthStack:
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL: infrastructure/auth.yaml
-      Parameters:
-        AppName: !Ref AppName
-        Environment: !Ref Environment
-
   RuntimeStack:
     Type: AWS::CloudFormation::Stack
     Condition: HasImage
@@ -60,22 +52,12 @@ Resources:
         GeminiSecretArn: !GetAtt StorageStack.Outputs.GeminiSecretArn
         ImageBucketName: !GetAtt StorageStack.Outputs.ImageBucketName
         ImageBucketArn: !GetAtt StorageStack.Outputs.ImageBucketArn
-        DiscoveryUrl: !GetAtt AuthStack.Outputs.DiscoveryUrl
-        AllowedClientId: !GetAtt AuthStack.Outputs.GatewayClientId
 
 Outputs:
   RepositoryUri:
     Value: !GetAtt EcrStack.Outputs.RepositoryUri
   GeminiSecretArn:
     Value: !GetAtt StorageStack.Outputs.GeminiSecretArn
-  UserPoolId:
-    Value: !GetAtt AuthStack.Outputs.UserPoolId
-  GatewayClientId:
-    Value: !GetAtt AuthStack.Outputs.GatewayClientId
-  TokenUrl:
-    Value: !GetAtt AuthStack.Outputs.TokenUrl
-  GatewayScope:
-    Value: !GetAtt AuthStack.Outputs.GatewayScope
   RuntimeArn:
     Condition: HasImage
     Value: !GetAtt RuntimeStack.Outputs.RuntimeArn

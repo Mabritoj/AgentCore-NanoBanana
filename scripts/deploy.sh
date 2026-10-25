@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy the Nano Banana MCP runtime for one environment.
-#   1. sam deploy  -> ECR, secret, bucket, Cognito (runtime is skipped while ImageTag is empty)
+#   1. sam deploy  -> ECR, secret, bucket (runtime is skipped while ImageTag is empty)
 #   2. store the Gemini key, build + push the linux/arm64 image
 #   3. sam deploy  -> same stack with ImageTag set, which creates/updates the AgentCore Runtime
 #
@@ -50,16 +50,12 @@ deploy --parameter-overrides "$OVERRIDES ImageTag=\"$TAG\""
 
 RUNTIME_ARN="$(out RuntimeArn)"
 ENCODED_ARN="$(python3 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe=""))' "$RUNTIME_ARN")"
-CLIENT_ID="$(out GatewayClientId)"; POOL_ID="$(out UserPoolId)"
 
 cat <<MSG
 
 Runtime: $RUNTIME_ARN
 
-Gateway target settings (Target type: MCP server, outbound auth: OAuth client credentials):
-  Endpoint:       https://bedrock-agentcore.$REGION.amazonaws.com/runtimes/$ENCODED_ARN/invocations?qualifier=DEFAULT
-  Client ID:      $CLIENT_ID
-  Client secret:  aws cognito-idp describe-user-pool-client --user-pool-id $POOL_ID --client-id $CLIENT_ID --query UserPoolClient.ClientSecret --output text
-  Token URL:      $(out TokenUrl)
-  Scope:          $(out GatewayScope)
+Runtime inbound auth is IAM (SigV4); no authorizer is configured. Register it on your gateway as an
+AgentCore Runtime target using the gateway's IAM role. Endpoint for reference:
+  https://bedrock-agentcore.$REGION.amazonaws.com/runtimes/$ENCODED_ARN/invocations?qualifier=DEFAULT
 MSG

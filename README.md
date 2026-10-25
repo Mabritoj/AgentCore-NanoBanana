@@ -1,11 +1,11 @@
 # AgentCore-NanoBanana
 
 An MCP server, packaged as a container for **Amazon Bedrock AgentCore Runtime**, that exposes Google's
-Nano Banana (Gemini image) models. Register it as an **MCP server target** on an AgentCore Gateway and any
+Nano Banana (Gemini image) models. Register it as a target on an AgentCore Gateway and any
 MCP client (Claude, Cursor, ...) can generate and edit images through the gateway.
 
 ```
-Claude / Cursor ──MCP──▶ AgentCore Gateway ──MCP (OAuth)──▶ AgentCore Runtime (this container) ──▶ Gemini API
+Claude / Cursor ──MCP──▶ AgentCore Gateway ──MCP (IAM)──▶ AgentCore Runtime (this container) ──▶ Gemini API
 ```
 
 ## Tools
@@ -29,7 +29,6 @@ samconfig.toml           # [dev] / [prd] sections: stack name, parameter_overrid
 infrastructure/
   ecr.yaml               # EcrStack      - image repository
   storage.yaml           # StorageStack  - Gemini API key secret + image bucket
-  auth.yaml              # AuthStack     - Cognito client-credentials auth for the gateway
   runtime.yaml           # RuntimeStack  - runtime execution role + AWS::BedrockAgentCore::Runtime
 containers/nanobanana/   # the MCP server container: Dockerfile, app/, tests/, requirements*.txt (Python)
 scripts/deploy.sh        # sam build/deploy, image build + push, runtime rollout
@@ -37,7 +36,7 @@ scripts/deploy.sh        # sam build/deploy, image build + push, runtime rollout
 
 Values reach nested stacks only through the root (`Parameters:` on each `AWS::CloudFormation::Stack`; sibling
 outputs are read with `!GetAtt` in the root and forwarded). All resources have explicit names, stateful ones
-(secret, bucket, user pool) are `Retain`, and the only tag is `BACKUP=<stack name>` from `samconfig.toml`.
+(secret, bucket) are `Retain`, and the only tag is `BACKUP=<stack name>` from `samconfig.toml`.
 There is no `Globals` block because the project has no `AWS::Serverless::Function`; compute is the AgentCore
 Runtime container.
 
@@ -50,19 +49,20 @@ GEMINI_API_KEY=... ./scripts/deploy.sh dev     # or prd
 ```
 
 The script runs `sam build` + `sam deploy --config-env <env>` twice: first without `ImageTag` (creates ECR,
-secret, bucket, Cognito; the `RuntimeStack` is skipped by the `HasImage` condition), then, after building and
-pushing the **linux/arm64** image, with `ImageTag` set so the runtime (`serverProtocol=MCP`, JWT authorizer) is
+secret, bucket; the `RuntimeStack` is skipped by the `HasImage` condition), then, after building and
+pushing the **linux/arm64** image, with `ImageTag` set so the runtime (`serverProtocol=MCP`, default IAM inbound auth) is
 created or updated. It prints the gateway target settings at the end.
 
 ## Add to the Gateway
 
-Create a target of type **MCP server** with the endpoint, Cognito client ID/secret, token URL and scope printed by
-the script (outbound auth: OAuth client credentials). Clients then see the tools as `<target-name>___generate_image`, etc.
+The runtime uses the default IAM (SigV4) inbound auth, so there is no OAuth setup. Register it on the gateway as an
+AgentCore Runtime target that authenticates with the gateway's IAM role, and make sure that role is allowed to call
+`bedrock-agentcore:InvokeAgentRuntime` on the runtime ARN printed by the deploy script. This repo does not yet
+create the target; see the `agentcore-consumer` skill for the `GatewayTarget` pattern.
 
 ## Teardown
 
-`sam delete --config-env <env>` removes everything except the `Retain` resources (secret, image bucket, user
-pool). Delete those manually, or redeploys with the same names will conflict.
+`sam delete --config-env <env>` removes everything except the `Retain` resources (secret, image bucket). Delete those manually, or redeploys with the same names will conflict.
 
 ## Local development
 
