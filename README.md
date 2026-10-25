@@ -55,10 +55,15 @@ created or updated. It prints the gateway target settings at the end.
 
 ## Add to the Gateway
 
-The runtime uses the default IAM (SigV4) inbound auth, so there is no OAuth setup. Register it on the gateway as an
-AgentCore Runtime target that authenticates with the gateway's IAM role, and make sure that role is allowed to call
-`bedrock-agentcore:InvokeAgentRuntime` on the runtime ARN printed by the deploy script. This repo does not yet
-create the target; see the `agentcore-consumer` skill for the `GatewayTarget` pattern.
+The runtime uses the default IAM (SigV4) inbound auth, so there is no OAuth setup. Because it speaks MCP, register
+it on the gateway as an **MCP server** target (`TargetConfiguration.Mcp.McpServer`) with:
+
+- `Endpoint`: `https://bedrock-agentcore.<region>.amazonaws.com/runtimes/<URL-encoded runtime ARN>/invocations?qualifier=DEFAULT`
+  (the runtime ARN is a stack output; `deploy.sh` prints the full URL)
+- credentials: `GATEWAY_IAM_ROLE` with an IAM credential provider whose `Service` is `bedrock-agentcore`
+
+The gateway's role must also be allowed to invoke the runtime. This repo does not yet create the target; see the
+`agentcore-consumer` skill for the `GatewayTarget` / `GatewayExportPrefix` pattern.
 
 ## Teardown
 

@@ -56,6 +56,6 @@ cat <<MSG
 Runtime: $RUNTIME_ARN
 
 Runtime inbound auth is IAM (SigV4); no authorizer is configured. Register it on your gateway as an
-AgentCore Runtime target using the gateway's IAM role. Endpoint for reference:
+MCP server target (GATEWAY_IAM_ROLE, IAM service 'bedrock-agentcore'). Endpoint:
   https://bedrock-agentcore.$REGION.amazonaws.com/runtimes/$ENCODED_ARN/invocations?qualifier=DEFAULT
 MSG
