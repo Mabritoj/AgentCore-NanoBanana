@@ -6,3 +6,4 @@ __pycache__/
 out/
 .aws-sam/
 samconfig.toml.bak
+samconfig.toml

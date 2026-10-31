@@ -1,0 +1,20 @@
+# Copy this file to samconfig.toml and fill in your own AWS account's values.
+# samconfig.toml is gitignored — it holds real account IDs, role ARNs, and
+# DNS/domain identifiers that shouldn't be committed.
+version = 0.1
+
+[prd]
+[prd.deploy.parameters]
+stack_name = "agentcore-nanobanana"
+s3_bucket = "<YOUR_SAM_DEPLOYMENTS_BUCKET>"
+s3_prefix = "agentcore-nanobanana"
+resolve_s3 = true
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_NAMED_IAM"
+parameter_overrides = [
+    "AppName=agentcore-nanobanana",
+    "Environment=prd",
+    "GatewayExportPrefix=ironbear-agentcore-prd"
+]
+tags = "BACKUP=\"agentcore-nanobanana\""
